@@ -21,6 +21,7 @@ ext.apkDir = file('apk')
 ext.apkName = 'com.task.visor'
 ext.apk = new File(apkDir, "${apkName}.apk")
 
+ext.androidSdkDir = new File('/opt/androidsdk-linux')
 ext.tools = project(':tools')
 
 task prepare(dependsOn: [':tools:installTools']) {
@@ -60,10 +61,34 @@ task dex2jar(dependsOn: [':prepare']) {
 ext.decompiled = new File(buildDir, 'taskvizor-decompiled')
 
 task decompile(dependsOn: [':prepare', ':dex2jar']) {
+    inputs.dir taskvizorClassesDir
+    outputs.dir decompiled
     doLast {
         decompiled.mkdirs()
-
         tools.fernflower(["-e=${classesDir}", taskvizorClassesDir, decompiled,])
+    }
+}
+
+File findAndroidJar() {
+    for (File dir : new File(androidSdkDir, 'platforms').listFiles().sort().reverse()) {
+        def androidJar = new File(dir, 'android.jar')
+        if (androidJar.file) {
+            return androidJar
+        }
+    }
+    throw new GradleScriptException("android.jar not found")
+}
+
+ext.recompiled = new File(buildDir, 'taskvizor-recompiled')
+
+task recompile(dependsOn: [':decompile']) {
+    inputs.dir decompiled
+    outputs.dir recompiled
+    doLast {
+        recompiled.mkdirs()
+        ant.javac(classpath: "${classesDir}${File.pathSeparator}${findAndroidJar()}", destdir: recompiled) {
+            src(path: decompiled)
+        }
     }
 }
 
@@ -160,7 +185,6 @@ task build(dependsOn: [':prepare', ':replace']) {
     }
 }
 
-ext.androidSdkDir = new File('/opt/androidsdk-linux')
 ext.buildTools = new File(androidSdkDir, 'build-tools')
 
 File findExecutable(String name) {
@@ -170,10 +194,11 @@ File findExecutable(String name) {
             return executabe
         }
     }
-    throw new GradleScriptException("Not found ${name}")
+    throw new GradleScriptException("${name} not found")
 }
 
 ext.zipalign = findExecutable('zipalign')
+ext.newApkUnsignedAligned = new File(buildDir, "${newApkName}-unsigned-aligned.apk")
 ext.newApkUnsignedAligned = new File(buildDir, "${newApkName}-unsigned-aligned.apk")
 
 task alignApk(dependsOn: [':prepare']) {
