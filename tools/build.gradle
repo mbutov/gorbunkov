@@ -1,0 +1,127 @@
+
+task clean {
+    doLast {
+        buildDir.deleteDir()
+    }
+}
+
+ext.toolsDir = projectDir
+
+void download(String url, File file) {
+
+    InputStream input = new URL(url).openStream()
+    try {
+        file.parentFile.mkdirs()
+        file.withOutputStream { output ->
+            output << input
+        }
+    }
+    finally {
+        input.close()
+    }
+
+}
+
+def prefix() {
+    System.currentTimeSeconds()
+}
+
+ext.apktoolDir = new File(toolsDir, 'apktool')
+ext.apktoolJar = new File(apktoolDir, 'apktool.jar')
+
+task installApktool {
+    shouldRunAfter ':clean'
+    doLast {
+        if (!apktoolJar.file) {
+            download('https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.3.4.jar', apktoolJar)
+        }
+    }
+}
+
+def apktool(def args) {
+    buildDir.mkdirs()
+    ant.java(fork: true, jar: apktoolJar, output: "${buildDir}/${prefix()}-apktool.log") {
+        args.each {
+            arg(value: it)
+        }
+    }
+}
+
+ext.dextoolsZip = new File(toolsDir, 'dex-tools-2.0.zip')
+ext.dextoolsDir = new File(toolsDir, 'dex-tools')
+
+task installDextools {
+    shouldRunAfter ':clean'
+    doLast {
+        if (!dextoolsZip.file) {
+            download('https://github.com/pxb1988/dex2jar/releases/download/2.0/dex-tools-2.0.zip', dextoolsZip)
+        }
+        if (!dextoolsDir.directory) {
+            dextoolsDir.mkdirs()
+            ant.unzip(src: dextoolsZip, dest: dextoolsDir) {
+                patternset {
+                    include(name: '**/*.jar')
+                }
+                mapper(type: 'flatten')
+            }
+        }
+    }
+}
+
+// com.googlecode.d2j.jasmin.Jar2JasminCmd
+// com.googlecode.d2j.jasmin.Jasmin2JarCmd
+// com.googlecode.d2j.smali.BaksmaliCmd
+// com.googlecode.d2j.smali.SmaliCmd
+// com.googlecode.dex2jar.tools.Dex2jarCmd
+// com.googlecode.dex2jar.tools.DexRecomputeChecksum
+// com.googlecode.dex2jar.tools.Jar2Dex
+// com.googlecode.dex2jar.tools.StdApkCmd
+
+def dextools(def dir, String mainClass, def args) {
+    buildDir.mkdirs()
+    ant.java(fork: true, dir: dir, classname: mainClass, output: "${buildDir}/${prefix()}-dextools.log")  {
+        classpath {
+            fileset(dir: dextoolsDir, includes: '*.jar')
+        }
+        args.each {
+            arg(value: it)
+        }
+    }
+}
+
+def dextoolsDexToJar(def dir, def args) {
+    dextools(dir, 'com.googlecode.dex2jar.tools.Dex2jarCmd', args)
+}
+
+ext.fernflowerZip = new File(toolsDir, 'fernflower.zip')
+ext.fernflowerDir = new File(toolsDir, 'fernflower-master')
+ext.fernflowerJar = new File(fernflowerDir, 'build/libs/fernflower.jar')
+
+task installFernflower {
+    shouldRunAfter ':clean'
+    doLast {
+        if (!fernflowerZip.file) {
+            download('https://github.com/fesh0r/fernflower/archive/master.zip', fernflowerZip)
+        }
+        if (!fernflowerDir.directory) {
+            ant.unzip(src: fernflowerZip, dest: toolsDir)
+        }
+        if (!fernflowerJar.file) {
+            project.task('installFernflower$GradleBuild', type: GradleBuild) {
+                buildFile "${fernflowerDir}/build.gradle"
+                tasks = ['jar']
+            }.execute()
+        }
+    }
+}
+
+def fernflower(def args) {
+    buildDir.mkdirs()
+    ant.java(fork: true, jar: fernflowerJar, output: "${buildDir}/${prefix()}-fernflower.log"){
+        args.each {
+            arg(value: it)
+        }
+    }
+}
+
+task installTools(dependsOn: [installApktool, installDextools, installFernflower])

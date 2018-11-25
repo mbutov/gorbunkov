@@ -1,0 +1,225 @@
+buildscript {
+
+    repositories {
+        jcenter()
+        google()
+    }
+
+    dependencies {
+        classpath 'com.android.tools.build:gradle:3.2.1'
+    }
+
+}
+
+task clean(dependsOn: [':tools:clean']) {
+    doLast {
+        buildDir.deleteDir()
+    }
+}
+
+ext.apkDir = file('apk')
+ext.apkName = 'com.task.visor'
+ext.apk = new File(apkDir, "${apkName}.apk")
+
+ext.tools = project(':tools')
+
+task prepare(dependsOn: [':tools:installTools']) {
+    shouldRunAfter ':clean'
+    doLast {
+        buildDir.mkdirs()
+    }
+}
+
+ext.classesJar = new File(buildDir, "${apkName}-dex2jar.jar")
+ext.classesDir = new File(buildDir, 'classes')
+ext.taskvizorClassesDir = new File(buildDir, 'taskvizor-classes')
+
+task dex2jar(dependsOn: [':prepare']) {
+
+    inputs.file apk
+    outputs.file classesJar
+    outputs.dir classesDir
+    outputs.dir taskvizorClassesDir
+
+    doLast {
+
+        tools.dextoolsDexToJar(buildDir, [apk,])
+
+        classesDir.mkdirs()
+        ant.unzip(src: classesJar, dest: classesDir)
+
+        taskvizorClassesDir.mkdirs()
+        ant.move(todir: taskvizorClassesDir) {
+            fileset(dir: classesDir) {
+                include(name: 'com/task/**/*')
+            }
+        }
+    }
+}
+
+ext.decompiled = new File(buildDir, 'taskvizor-decompiled')
+
+task decompile(dependsOn: [':prepare', ':dex2jar']) {
+    doLast {
+        decompiled.mkdirs()
+
+        tools.fernflower(["-e=${classesDir}", taskvizorClassesDir, decompiled,])
+    }
+}
+
+ext.decoded = new File(buildDir, 'apk-decoded')
+
+task decode(dependsOn: [':prepare']) {
+    inputs.file apk
+    outputs.dir decoded
+    doLast {
+        tools.apktool(['decode', '--output', decoded, '--force', apk,])
+    }
+}
+
+def replace(def dir, def names, def replacements, boolean regex = false) {
+    names.each { name ->
+        replacements.each { key, value ->
+            if (regex) {
+                ant.replaceregexp(dir: dir, match: key, replace: value) {
+                    include(name: name)
+                }
+            }
+            else {
+                ant.replace(dir: dir, token: key, value: value) {
+                    include(name: name)
+                }
+            }
+        }
+    }
+}
+
+ext.replaced = new File(buildDir, 'apk-replaced')
+
+task replace(dependsOn: [':prepare', ':decode']) {
+    inputs.dir decoded
+    outputs.dir replaced
+    doLast {
+        ant.copy(todir: replaced) {
+            fileset(dir: decoded)
+        }
+
+        File smaliDir = new File(replaced, 'smali')
+
+        replace(smaliDir,
+            [
+                'com/task/vizor/BuildConfig.smali',
+                'com/task/vizor/constants/SharedPreferenceConstants.smali',
+                'com/task/vizor/utils/SharedPreferenceHelper.smali',
+            ],
+            [
+                '"78.47.248.47"'                  : '"148.251.2.143"',
+                '"geo.taskvizor.com"'             : '"148.251.2.143"',
+                ('0x' + Integer.toHexString(9005)): '0x' + Integer.toHexString(38443),
+            ]
+        )
+        replace(smaliDir,
+            [
+                'com/task/vizor/constants/Constants.smali',
+                'com/task/vizor/gps/logs/LogSender.smali',
+            ],
+            [
+                '"taskvizor_log"'   : '"__taskvizor_log"',
+                '"taskvizor_log99"' : '"__taskvizor_log99"',
+                '"ftp.taskvizor.by"': '"ftp.__taskvizor.by"',
+            ]
+        )
+
+        File resDir = new File(replaced, 'res')
+        replace(resDir,
+            [
+                'values/strings.xml',
+                'values/arrays.xml',
+            ],
+            [
+                'https://api.taskvizor.by'      : 'https://148.251.2.143:38443',
+                'https://api.taskvizor.ru'      : 'https://148.251.2.143:38443',
+                'https://api.taskvizor.com'     : 'https://148.251.2.143:38443',
+
+                '<item>api.taskvizor.by</item>' : '<item>148.251.2.143</item>',
+                '<item>api.taskvizor.ru</item>' : '<item>148.251.2.143</item>',
+                '<item>api.taskvizor.com</item>': '<item>148.251.2.143</item>',
+            ]
+        )
+    }
+}
+
+ext.newApkName = 'taskvizor-new'
+ext.newApkUnsigned = new File(buildDir, "${newApkName}-unsigned.apk")
+
+task build(dependsOn: [':prepare', ':replace']) {
+    inputs.dir replaced
+    outputs.file newApkUnsigned
+    doLast {
+        tools.apktool(['build', '--output', newApkUnsigned, replaced,])
+    }
+}
+
+ext.androidSdkDir = new File('/opt/androidsdk-linux')
+ext.buildTools = new File(androidSdkDir, 'build-tools')
+
+File findExecutable(String name) {
+    for (File dir : buildTools.listFiles().findAll { it.directory }.sort().reverse()) {
+        File executabe = new File(dir, name)
+        if (executabe.canExecute()) {
+            return executabe
+        }
+    }
+    throw new GradleScriptException("Not found ${name}")
+}
+
+ext.zipalign = findExecutable('zipalign')
+ext.newApkUnsignedAligned = new File(buildDir, "${newApkName}-unsigned-aligned.apk")
+
+task alignApk(dependsOn: [':prepare']) {
+    shouldRunAfter ':build'
+    inputs.file newApkUnsigned
+    outputs.file newApkUnsignedAligned
+    doLast {
+        newApkUnsignedAligned.delete()
+        exec {
+            executable zipalign
+            args = ['-v', '-p', '4', newApkUnsigned, newApkUnsignedAligned]
+        }
+    }
+}
+
+ext.apksigner = findExecutable('apksigner')
+
+ext.keysDir = file("keys")
+ext.key = new File(keysDir, 'android-sign.pk8')
+ext.cert = new File(keysDir, 'android-sign.crt')
+
+ext.newApkSigned = new File(buildDir, "${newApkName}-signed.apk")
+
+task signApk(dependsOn: [':alignApk']) {
+    inputs.file newApkUnsignedAligned
+    inputs.dir keysDir
+    outputs.file newApkSigned
+    doLast {
+        def path = new File(System.properties['java.home'], 'bin').path + File.pathSeparator + System.getenv('PATH')
+        exec {
+            executable apksigner
+            args = [
+                'sign',
+                '--key', key,
+                '--cert', cert,
+                '--out', newApkSigned,
+                newApkUnsignedAligned
+            ]
+            environment = ['PATH': path]
+        }
+    }
+}
+
+task rebuild(dependsOn: [':clean', ':build', ':signApk',]) {
+    doLast {
+        File newDecoded = new File(buildDir, 'apk-new-decoded')
+        tools.apktool(['decode', '--output', newDecoded, newApkSigned,])
+    }
+}
