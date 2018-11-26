@@ -44,7 +44,7 @@ def apktool(def args) {
     }
 }
 
-ext.dextoolsZip = new File(toolsDir, 'dex-tools-2.0.zip')
+ext.dextoolsZip = new File(toolsDir, 'dex-tools.zip')
 ext.dextoolsDir = new File(buildDir, 'dex-tools')
 
 task installDextools {
