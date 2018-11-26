@@ -12,9 +12,7 @@ void download(String url, File file) {
     InputStream input = new URL(url).openStream()
     try {
         file.parentFile.mkdirs()
-        file.withOutputStream { output ->
-            output << input
-        }
+        file.withOutputStream { output -> output << input }
     }
     finally {
         input.close()
@@ -26,8 +24,7 @@ def prefix() {
     System.currentTimeSeconds()
 }
 
-ext.apktoolDir = new File(toolsDir, 'apktool')
-ext.apktoolJar = new File(apktoolDir, 'apktool.jar')
+ext.apktoolJar = new File(toolsDir, 'apktool.jar')
 
 task installApktool {
     shouldRunAfter ':clean'
@@ -48,7 +45,7 @@ def apktool(def args) {
 }
 
 ext.dextoolsZip = new File(toolsDir, 'dex-tools-2.0.zip')
-ext.dextoolsDir = new File(toolsDir, 'dex-tools')
+ext.dextoolsDir = new File(buildDir, 'dex-tools')
 
 task installDextools {
     shouldRunAfter ':clean'
@@ -94,7 +91,7 @@ def dextoolsDexToJar(def dir, def args) {
 }
 
 ext.fernflowerZip = new File(toolsDir, 'fernflower.zip')
-ext.fernflowerDir = new File(toolsDir, 'fernflower-master')
+ext.fernflowerDir = new File(buildDir, 'fernflower-master')
 ext.fernflowerJar = new File(fernflowerDir, 'build/libs/fernflower.jar')
 
 task installFernflower {
@@ -103,8 +100,9 @@ task installFernflower {
         if (!fernflowerZip.file) {
             download('https://github.com/fesh0r/fernflower/archive/master.zip', fernflowerZip)
         }
+        fernflowerDir.parentFile.mkdirs()
         if (!fernflowerDir.directory) {
-            ant.unzip(src: fernflowerZip, dest: toolsDir)
+            ant.unzip(src: fernflowerZip, dest: fernflowerDir.parentFile)
         }
         if (!fernflowerJar.file) {
             project.task('installFernflower$GradleBuild', type: GradleBuild) {

@@ -11,6 +11,10 @@ buildscript {
 
 }
 
+allprojects {
+    apply plugin: 'idea'
+}
+
 task clean(dependsOn: [':tools:clean']) {
     doLast {
         buildDir.deleteDir()

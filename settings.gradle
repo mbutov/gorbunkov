@@ -1,2 +1,3 @@
+rootProject.name = 'taskvizor-new'
 
 include 'tools'
